@@ -56,7 +56,6 @@ with RestClientCE(url) as rest_client:
 
             timeseries = rest_client.get_timeseries(vibrometer_1, key, 0, end_ts)
 
-
             # Define the output file name based on the key
             output_file = f'{"application/src/main/resources/csv"}/{deviceId}/{key}.csv'
 
