@@ -23,6 +23,9 @@ import io.swagger.annotations.ApiOperation;
 import io.swagger.annotations.ApiParam;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.core.io.FileSystemResource;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -37,24 +40,12 @@ import org.springframework.web.bind.annotation.ResponseBody;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.context.request.async.DeferredResult;
-import org.thingsboard.server.common.data.ClaimRequest;
-import org.thingsboard.server.common.data.Customer;
-import org.thingsboard.server.common.data.DataConstants;
-import org.thingsboard.server.common.data.Device;
-import org.thingsboard.server.common.data.DeviceInfo;
-import org.thingsboard.server.common.data.DeviceInfoFilter;
-import org.thingsboard.server.common.data.EntitySubtype;
-import org.thingsboard.server.common.data.SaveDeviceWithCredentialsRequest;
-import org.thingsboard.server.common.data.Tenant;
+import org.thingsboard.server.common.data.*;
 import org.thingsboard.server.common.data.device.DeviceSearchQuery;
 import org.thingsboard.server.common.data.edge.Edge;
 import org.thingsboard.server.common.data.exception.ThingsboardErrorCode;
 import org.thingsboard.server.common.data.exception.ThingsboardException;
-import org.thingsboard.server.common.data.id.CustomerId;
-import org.thingsboard.server.common.data.id.DeviceId;
-import org.thingsboard.server.common.data.id.DeviceProfileId;
-import org.thingsboard.server.common.data.id.EdgeId;
-import org.thingsboard.server.common.data.id.TenantId;
+import org.thingsboard.server.common.data.id.*;
 import org.thingsboard.server.common.data.ota.OtaPackageType;
 import org.thingsboard.server.common.data.page.PageData;
 import org.thingsboard.server.common.data.page.PageLink;
@@ -67,49 +58,29 @@ import org.thingsboard.server.dao.device.claim.ClaimResult;
 import org.thingsboard.server.dao.device.claim.ReclaimResult;
 import org.thingsboard.server.dao.exception.IncorrectParameterException;
 import org.thingsboard.server.dao.model.ModelConstants;
+import org.thingsboard.server.dao.timeseries.TimeseriesService;
 import org.thingsboard.server.queue.util.TbCoreComponent;
 import org.thingsboard.server.service.device.DeviceBulkImportService;
 import org.thingsboard.server.service.entitiy.device.TbDeviceService;
+import org.thingsboard.server.service.security.AccessValidator;
 import org.thingsboard.server.service.security.model.SecurityUser;
 import org.thingsboard.server.service.security.permission.Operation;
 import org.thingsboard.server.service.security.permission.Resource;
 
 import javax.annotation.Nullable;
-import java.util.ArrayList;
-import java.util.List;
-import java.util.UUID;
+import java.io.File;
+import java.io.FileInputStream;
+import java.io.FileOutputStream;
+import java.io.IOException;
+import java.util.*;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.TimeoutException;
 import java.util.stream.Collectors;
+import java.util.zip.ZipEntry;
+import java.util.zip.ZipOutputStream;
 
-import static org.thingsboard.server.controller.ControllerConstants.CUSTOMER_AUTHORITY_PARAGRAPH;
-import static org.thingsboard.server.controller.ControllerConstants.CUSTOMER_ID;
-import static org.thingsboard.server.controller.ControllerConstants.CUSTOMER_ID_PARAM_DESCRIPTION;
-import static org.thingsboard.server.controller.ControllerConstants.DEVICE_ACTIVE_PARAM_DESCRIPTION;
-import static org.thingsboard.server.controller.ControllerConstants.DEVICE_ID;
-import static org.thingsboard.server.controller.ControllerConstants.DEVICE_ID_PARAM_DESCRIPTION;
-import static org.thingsboard.server.controller.ControllerConstants.DEVICE_INFO_DESCRIPTION;
-import static org.thingsboard.server.controller.ControllerConstants.DEVICE_NAME_DESCRIPTION;
-import static org.thingsboard.server.controller.ControllerConstants.DEVICE_PROFILE_ID_PARAM_DESCRIPTION;
-import static org.thingsboard.server.controller.ControllerConstants.DEVICE_SORT_PROPERTY_ALLOWABLE_VALUES;
-import static org.thingsboard.server.controller.ControllerConstants.DEVICE_TEXT_SEARCH_DESCRIPTION;
-import static org.thingsboard.server.controller.ControllerConstants.DEVICE_TYPE_DESCRIPTION;
-import static org.thingsboard.server.controller.ControllerConstants.DEVICE_WITH_DEVICE_CREDENTIALS_PARAM_DESCRIPTION_MARKDOWN;
-import static org.thingsboard.server.controller.ControllerConstants.EDGE_ASSIGN_ASYNC_FIRST_STEP_DESCRIPTION;
-import static org.thingsboard.server.controller.ControllerConstants.EDGE_ASSIGN_RECEIVE_STEP_DESCRIPTION;
-import static org.thingsboard.server.controller.ControllerConstants.EDGE_ID_PARAM_DESCRIPTION;
-import static org.thingsboard.server.controller.ControllerConstants.EDGE_UNASSIGN_ASYNC_FIRST_STEP_DESCRIPTION;
-import static org.thingsboard.server.controller.ControllerConstants.EDGE_UNASSIGN_RECEIVE_STEP_DESCRIPTION;
-import static org.thingsboard.server.controller.ControllerConstants.PAGE_DATA_PARAMETERS;
-import static org.thingsboard.server.controller.ControllerConstants.PAGE_NUMBER_DESCRIPTION;
-import static org.thingsboard.server.controller.ControllerConstants.PAGE_SIZE_DESCRIPTION;
-import static org.thingsboard.server.controller.ControllerConstants.SORT_ORDER_ALLOWABLE_VALUES;
-import static org.thingsboard.server.controller.ControllerConstants.SORT_ORDER_DESCRIPTION;
-import static org.thingsboard.server.controller.ControllerConstants.SORT_PROPERTY_DESCRIPTION;
-import static org.thingsboard.server.controller.ControllerConstants.TENANT_AUTHORITY_PARAGRAPH;
-import static org.thingsboard.server.controller.ControllerConstants.TENANT_ID;
-import static org.thingsboard.server.controller.ControllerConstants.TENANT_ID_PARAM_DESCRIPTION;
-import static org.thingsboard.server.controller.ControllerConstants.TENANT_OR_CUSTOMER_AUTHORITY_PARAGRAPH;
-import static org.thingsboard.server.controller.ControllerConstants.UUID_WIKI_LINK;
+import static org.thingsboard.common.util.JacksonUtil.toJsonNode;
+import static org.thingsboard.server.controller.ControllerConstants.*;
 import static org.thingsboard.server.controller.EdgeController.EDGE_ID;
 
 @RestController
@@ -118,6 +89,15 @@ import static org.thingsboard.server.controller.EdgeController.EDGE_ID;
 @RequiredArgsConstructor
 @Slf4j
 public class DeviceController extends BaseController {
+
+    @Autowired
+    private TelemetryController telemetryController;
+
+    @Autowired
+    private AccessValidator accessValidator;
+
+    @Autowired
+    private TimeseriesService tsService;
 
     protected static final String DEVICE_NAME = "deviceName";
 
@@ -751,4 +731,97 @@ public class DeviceController extends BaseController {
         return deviceBulkImportService.processBulkImport(request, user);
     }
 
+    @PreAuthorize("hasAnyAuthority('TENANT_ADMIN', 'CUSTOMER_USER')")
+    @RequestMapping(value = "/device/{deviceId}/csv", method = RequestMethod.GET)
+    @ResponseBody
+    public List<String> getAllKeysByEntityId(@ApiParam(value = DEVICE_ID_PARAM_DESCRIPTION)
+                               @PathVariable(DEVICE_ID) String strDeviceId) throws ThingsboardException {
+        checkParameter(DEVICE_ID, strDeviceId);
+        DeviceId deviceId = new DeviceId(toUUID(strDeviceId));
+        List<EntityId> deviceIds = new ArrayList<>();
+        deviceIds.add(deviceId);
+
+        List<String> res = tsService.findAllKeysByEntityIds(getCurrentUser().getTenantId(), deviceIds);
+
+//        List<TsKvEntry> entries = tsService.findAll(getCurrentUser().getTenantId(), deviceId, queries).get(1685384254186L, TimeUnit.SECONDS);
+//        TelemetryController telemetryController = new TelemetryController();
+//        DeferredResult<ResponseEntity> res2 = telemetryController.getTimeseries("DEVICE", "2a2afb40-fe1d-11ed-aff2-ef6b9f9d6cfe", "temperature", startTs, endTs, 0L, 100, "NONE", "DESC", false);
+        System.out.println("res size : " + res.size());
+        System.out.println("res: " + res.get(0).toString());
+        return res;
+    }
+
+    @PreAuthorize("hasAnyAuthority('TENANT_ADMIN', 'CUSTOMER_USER')")
+    @RequestMapping(value = "/device/{deviceId}/csv/download", method = RequestMethod.GET)
+    @ResponseBody
+    public ResponseEntity<FileSystemResource> downloadCsv(@ApiParam(value = DEVICE_ID_PARAM_DESCRIPTION)
+                                 @PathVariable(DEVICE_ID) String strDeviceId) throws ThingsboardException {
+
+        List<String> str = getAllKeysByEntityId(strDeviceId);
+
+        String pythonScript = "application/src/main/resources/csv/test.py";
+
+        try {
+            ProcessBuilder processBuilder = new ProcessBuilder("python", pythonScript);
+            Process process = processBuilder.start();
+            int exitCode = process.waitFor();
+            System.out.println("Python script exited with code: " + exitCode);
+        } catch (InterruptedException | IOException e) {
+            e.printStackTrace();
+        }
+
+            try {
+                // Create a list of files to be downloaded
+
+                List<File> files = new ArrayList<>();
+
+                for(int i=0; i < str.size(); i++) {
+                    files.add(new File("application/src/main/resources/csv/" + strDeviceId + "/" + str.get(i) + ".csv"));
+                }
+
+                // Add as many files as needed
+
+                // Create a temporary zip file
+                File zipFile = File.createTempFile("files", ".zip");
+
+                // Create a ZipOutputStream to write the files to the zip file
+                try (ZipOutputStream zipOut = new ZipOutputStream(new FileOutputStream(zipFile))) {
+                    for (File file : files) {
+                        // Create a ZipEntry for each file
+                        ZipEntry zipEntry = new ZipEntry(file.getName());
+                        zipOut.putNextEntry(zipEntry);
+
+                        // Read the file content and write it to the zip file
+                        FileInputStream fileInputStream = new FileInputStream(file);
+                        byte[] buffer = new byte[1024];
+                        int bytesRead;
+                        while ((bytesRead = fileInputStream.read(buffer)) != -1) {
+                            zipOut.write(buffer, 0, bytesRead);
+                        }
+                        fileInputStream.close();
+
+                        // Close the current entry
+                        zipOut.closeEntry();
+                    }
+                }
+
+                // Create a FileSystemResource from the zip file
+                FileSystemResource zipResource = new FileSystemResource(zipFile);
+
+                // Set the content type and headers for the response
+                HttpHeaders headers = new HttpHeaders();
+                headers.setContentType(MediaType.APPLICATION_OCTET_STREAM);
+                headers.setContentDispositionFormData("attachment", "files.zip");
+
+                // Return the zip file as a ResponseEntity
+                return ResponseEntity.ok()
+                        .headers(headers)
+                        .body(zipResource);
+            } catch (Exception e) {
+                e.printStackTrace();
+                // Handle any exceptions and return an appropriate response
+                return ResponseEntity.status(500).build();
+            }
+
+    }
 }
