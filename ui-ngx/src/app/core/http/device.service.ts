@@ -17,7 +17,7 @@
 import { Injectable } from '@angular/core';
 import { defaultHttpOptionsFromConfig, RequestConfig } from './http-utils';
 import { Observable, ReplaySubject } from 'rxjs';
-import { HttpClient } from '@angular/common/http';
+import { HttpClient, HttpRequest, HttpResponse } from '@angular/common/http';
 import { PageLink } from '@shared/models/page/page-link';
 import { PageData } from '@shared/models/page/page-data';
 import {
@@ -32,6 +32,7 @@ import { EntitySubtype } from '@app/shared/models/entity-type.models';
 import { AuthService } from '@core/auth/auth.service';
 import { BulkImportRequest, BulkImportResult } from '@home/components/import-export/import-export.models';
 import { PersistentRpc, RpcStatus } from '@shared/models/rpc.models';
+import { File } from 'buffer';
 
 @Injectable({
   providedIn: 'root'
@@ -201,4 +202,34 @@ export class DeviceService {
     return this.http.post<BulkImportResult>('/api/device/bulk_import', entitiesData, defaultHttpOptionsFromConfig(config));
   }
 
+  public downloadCsv(entityId: string, config?: any) {
+    const url = `/api/device/${entityId}/csv/download`;
+    this.http.get(url, {
+      ...config,
+      responseType: 'blob', // Set the responseType to 'blob'
+      observe: 'response', // Include the full response in the result
+    }).subscribe((response: any) => {
+      if (response.status === 200 && response.body) {
+        const blob = new Blob([response.body], { type: 'application/zip' });
+        this.downloadFile(blob);
+      } else {
+        console.error('Failed to download File. Status:', response.status);
+        // Handle the error case
+      }
+    }, (error: any) => {
+      console.error('Failed to download File. Error:', error);
+      // Handle the error case
+    });
+  }
+
+  downloadFile(data: Blob) {
+    const url = window.URL.createObjectURL(data);
+    window.open(url); // Open the file in a new browser tab
+  }
 }
+
+
+
+
+
+

@@ -151,6 +151,8 @@ import { tap } from 'rxjs/operators';
 import { LayoutFixedSize, LayoutWidthType } from '@home/components/dashboard-page/layout/layout.models';
 import { TbPopoverComponent } from '@shared/components/popover.component';
 import { ResizeObserver } from '@juggle/resize-observer';
+import { DeviceService } from '@app/core/http/device.service';
+import { HttpHeaders } from '@angular/common/http';
 
 // @dynamic
 @Component({
@@ -345,6 +347,7 @@ export class DashboardPageComponent extends PageComponent implements IDashboardC
               private utils: UtilsService,
               private dashboardUtils: DashboardUtilsService,
               private authService: AuthService,
+              private deviceService: DeviceService,
               private entityService: EntityService,
               private dialogService: DialogService,
               private widgetComponentService: WidgetComponentService,
@@ -1553,4 +1556,19 @@ export class DashboardPageComponent extends PageComponent implements IDashboardC
       });
     }
   }
+
+  public downloadCsv() {
+    
+    const httpOptions = {
+      headers: new HttpHeaders({
+        'Content-Type':  'application/zip',
+        'X-Authorization' : 'Bearer ' + AuthService.getJwtToken()
+      })
+    };
+
+    console.log(AuthService.getJwtToken());
+    this.deviceService.downloadCsv("2a2afb40-fe1d-11ed-aff2-ef6b9f9d6cfe", httpOptions);
+}
+
+
 }

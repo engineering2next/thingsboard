@@ -61,6 +61,7 @@
         </div>
         <div class="tb-dashboard-action-panel" fxFlex="1 0 auto" fxLayout="row-reverse"
              fxLayoutAlign.gt-sm="start center" fxLayoutAlign="space-between center" fxLayoutGap="12px">
+             
           <button [fxShow]="showCloseToolbar()" mat-icon-button class="close-action"
                   matTooltip="{{ 'dashboard.close-toolbar' | translate }}"
                   matTooltipPosition="below"
@@ -99,6 +100,13 @@
                   matTooltipPosition="below"
                   (click)="exportDashboard($event)">
             <mat-icon>file_download</mat-icon>
+          </button>
+          <button [fxShow]="currentDashboardId && !isMobileApp && (isEdit || displayExport())" mat-icon-button
+                  matTooltip="Download (.csv)"
+                  matTooltipPosition="below"
+                  (click)="downloadCsv()">
+            <mat-icon>file_download</mat-icon>
+            <span style="font-size: 12px;">(.csv)</span>
           </button>
           <tb-timewindow [fxShow]="isEdit || displayDashboardTimewindow()"
                          isToolbar="true"
