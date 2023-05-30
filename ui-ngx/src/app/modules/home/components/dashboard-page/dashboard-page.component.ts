@@ -1558,16 +1558,7 @@ export class DashboardPageComponent extends PageComponent implements IDashboardC
   }
 
   public downloadCsv() {
-    
-    const httpOptions = {
-      headers: new HttpHeaders({
-        'Content-Type':  'application/zip',
-        'X-Authorization' : 'Bearer ' + AuthService.getJwtToken()
-      })
-    };
-
-    console.log(AuthService.getJwtToken());
-    this.deviceService.downloadCsv("2a2afb40-fe1d-11ed-aff2-ef6b9f9d6cfe", httpOptions);
+    this.deviceService.downloadCsv("2a2afb40-fe1d-11ed-aff2-ef6b9f9d6cfe");
 }
 
 
