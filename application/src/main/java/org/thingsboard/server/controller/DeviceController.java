@@ -89,16 +89,6 @@ import static org.thingsboard.server.controller.EdgeController.EDGE_ID;
 @RequiredArgsConstructor
 @Slf4j
 public class DeviceController extends BaseController {
-
-    @Autowired
-    private TelemetryController telemetryController;
-
-    @Autowired
-    private AccessValidator accessValidator;
-
-    @Autowired
-    private TimeseriesService tsService;
-
     protected static final String DEVICE_NAME = "deviceName";
 
     private final DeviceBulkImportService deviceBulkImportService;
@@ -729,99 +719,5 @@ public class DeviceController extends BaseController {
             Exception {
         SecurityUser user = getCurrentUser();
         return deviceBulkImportService.processBulkImport(request, user);
-    }
-
-    @PreAuthorize("hasAnyAuthority('TENANT_ADMIN', 'CUSTOMER_USER')")
-    @RequestMapping(value = "/device/{deviceId}/csv", method = RequestMethod.GET)
-    @ResponseBody
-    public List<String> getAllKeysByEntityId(@ApiParam(value = DEVICE_ID_PARAM_DESCRIPTION)
-                               @PathVariable(DEVICE_ID) String strDeviceId) throws ThingsboardException {
-        checkParameter(DEVICE_ID, strDeviceId);
-        DeviceId deviceId = new DeviceId(toUUID(strDeviceId));
-        List<EntityId> deviceIds = new ArrayList<>();
-        deviceIds.add(deviceId);
-
-        List<String> res = tsService.findAllKeysByEntityIds(getCurrentUser().getTenantId(), deviceIds);
-
-//        List<TsKvEntry> entries = tsService.findAll(getCurrentUser().getTenantId(), deviceId, queries).get(1685384254186L, TimeUnit.SECONDS);
-//        TelemetryController telemetryController = new TelemetryController();
-//        DeferredResult<ResponseEntity> res2 = telemetryController.getTimeseries("DEVICE", "2a2afb40-fe1d-11ed-aff2-ef6b9f9d6cfe", "temperature", startTs, endTs, 0L, 100, "NONE", "DESC", false);
-        System.out.println("res size : " + res.size());
-        System.out.println("res: " + res.get(0).toString());
-        return res;
-    }
-
-    @PreAuthorize("hasAnyAuthority('TENANT_ADMIN', 'CUSTOMER_USER')")
-    @RequestMapping(value = "/device/{deviceId}/csv/download", method = RequestMethod.GET)
-    @ResponseBody
-    public ResponseEntity<FileSystemResource> downloadCsv(@ApiParam(value = DEVICE_ID_PARAM_DESCRIPTION)
-                                 @PathVariable(DEVICE_ID) String strDeviceId) throws ThingsboardException {
-
-        List<String> str = getAllKeysByEntityId(strDeviceId);
-
-        String pythonScript = "application/src/main/resources/csv/test.py";
-
-        try {
-            ProcessBuilder processBuilder = new ProcessBuilder("python", pythonScript);
-            Process process = processBuilder.start();
-            int exitCode = process.waitFor();
-            System.out.println("Python script exited with code: " + exitCode);
-        } catch (InterruptedException | IOException e) {
-            e.printStackTrace();
-        }
-
-            try {
-                // Create a list of files to be downloaded
-
-                List<File> files = new ArrayList<>();
-
-                for(int i=0; i < str.size(); i++) {
-                    files.add(new File("application/src/main/resources/csv/" + strDeviceId + "/" + str.get(i) + ".csv"));
-                }
-
-                // Add as many files as needed
-
-                // Create a temporary zip file
-                File zipFile = File.createTempFile("files", ".zip");
-
-                // Create a ZipOutputStream to write the files to the zip file
-                try (ZipOutputStream zipOut = new ZipOutputStream(new FileOutputStream(zipFile))) {
-                    for (File file : files) {
-                        // Create a ZipEntry for each file
-                        ZipEntry zipEntry = new ZipEntry(file.getName());
-                        zipOut.putNextEntry(zipEntry);
-
-                        // Read the file content and write it to the zip file
-                        FileInputStream fileInputStream = new FileInputStream(file);
-                        byte[] buffer = new byte[1024];
-                        int bytesRead;
-                        while ((bytesRead = fileInputStream.read(buffer)) != -1) {
-                            zipOut.write(buffer, 0, bytesRead);
-                        }
-                        fileInputStream.close();
-
-                        // Close the current entry
-                        zipOut.closeEntry();
-                    }
-                }
-
-                // Create a FileSystemResource from the zip file
-                FileSystemResource zipResource = new FileSystemResource(zipFile);
-
-                // Set the content type and headers for the response
-                HttpHeaders headers = new HttpHeaders();
-                headers.setContentType(MediaType.APPLICATION_OCTET_STREAM);
-                headers.setContentDispositionFormData("attachment", "files.zip");
-
-                // Return the zip file as a ResponseEntity
-                return ResponseEntity.ok()
-                        .headers(headers)
-                        .body(zipResource);
-            } catch (Exception e) {
-                e.printStackTrace();
-                // Handle any exceptions and return an appropriate response
-                return ResponseEntity.status(500).build();
-            }
-
     }
 }
