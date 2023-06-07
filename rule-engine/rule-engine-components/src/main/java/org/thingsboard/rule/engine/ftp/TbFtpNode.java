@@ -60,7 +60,7 @@ public class TbFtpNode implements TbNode {
             if(msg.getType().equals("POST_TELEMETRY_REQUEST")){
 
                 System.out.println("msg =" + msg.toString());
-                this.file = "logs" + File.separator + tenantId + File.separator + deviceName;
+                this.file = "logs" + File.separator + tenantId + File.separator + deviceName + ".csv";
                 convertDataToCSV(msg, ctx, file);
             }
         }
