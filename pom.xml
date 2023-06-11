@@ -806,7 +806,6 @@
                             <exclude>node_modules/**</exclude>
                             <exclude>**/*.properties</exclude>
                             <exclude>src/test/resources/**</exclude>
-                            <exclude>src/main/resources/csv/**</exclude>
                             <exclude>src/vendor/**</exclude>
                             <exclude>src/font/**</exclude>
                             <exclude>src/sh/**</exclude>
