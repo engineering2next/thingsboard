@@ -7,6 +7,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.net.ftp.FTP;
 import org.apache.commons.net.ftp.FTPClient;
 import org.thingsboard.rule.engine.api.*;
+import org.thingsboard.rule.engine.api.util.TbNodeUtils;
 import org.thingsboard.server.common.data.Device;
 import org.thingsboard.server.common.data.id.DeviceId;
 import org.thingsboard.server.common.data.id.EntityId;
@@ -24,6 +25,7 @@ import java.text.SimpleDateFormat;
 import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
+import java.time.temporal.ChronoField;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.concurrent.*;
@@ -47,45 +49,41 @@ public class TbFtpNode implements TbNode {
 
     @Override
     public void init(TbContext ctx, TbNodeConfiguration configuration) throws TbNodeException {
-//        config = TbNodeUtils.convert(configuration, TbFtpNodeConfiguration.class);
+        config = TbNodeUtils.convert(configuration, TbFtpNodeConfiguration.class);
         System.out.println("initializing FTP node");
-
+        scheduleUploadFtp();
     }
 
     @Override
     public void onMsg(TbContext ctx, TbMsg msg) throws ExecutionException, InterruptedException, TbNodeException {
 
-        String deviceId = "56094780-0444-11ee-b756-1f26adf3a3bb";
-        EntityId entityId = new DeviceId(UUID.fromString(deviceId));
-        System.out.println("entityId = " + entityId);
-
         if(msg.getType().equals("TB_MSG_TEST")){
 
-            Long startTs = 0L;
-            Long endTs = 1686321220898L;
-            Long interval = 0L;
-            Integer limit = 100;
-            Aggregation agg = Aggregation.NONE;
-            String orderBy = "DESC";
-            
-            ctx.getDeviceService().findDevicesByTenantIdAndCustomerId(ctx.getTenantId(), msg.getCustomerId(), new PageLink(100)).getData().stream().forEach(device -> {
-                System.out.println("deviceName = " + device.getName());
-                System.out.println("deviceDevice = " + device.getId());
-
-                List<String> keys = ctx.getTimeseriesService().findAllKeysByEntityIds(ctx.getTenantId(), Collections.singletonList(device.getId()));
-
-                List<ReadTsKvQuery> queries = keys.stream().map(key -> new BaseReadTsKvQuery(key, startTs, endTs, interval, limit, agg, orderBy))
-                        .collect(Collectors.toList());
-                try {
-                    List<TsKvEntry> result = ctx.getTimeseriesService().findAll(ctx.getTenantId(),entityId,queries).get();
-                    testCSV(result, keys, device);
-                } catch (InterruptedException e) {
-                    throw new RuntimeException(e);
-                } catch (ExecutionException e) {
-                    throw new RuntimeException(e);
-                }
-
-            });
+//            Long startTs = 0L;
+//            Long endTs = 1686321220898L;
+//            Long interval = 0L;
+//            Integer limit = 100;
+//            Aggregation agg = Aggregation.NONE;
+//            String orderBy = "DESC";
+//
+//            ctx.getDeviceService().findDevicesByTenantIdAndCustomerId(ctx.getTenantId(), msg.getCustomerId(), new PageLink(100)).getData().stream().forEach(device -> {
+//                System.out.println("deviceName = " + device.getName());
+//                System.out.println("deviceDevice = " + device.getId());
+//
+//                List<String> keys = ctx.getTimeseriesService().findAllKeysByEntityIds(ctx.getTenantId(), Collections.singletonList(device.getId()));
+//
+//                List<ReadTsKvQuery> queries = keys.stream().map(key -> new BaseReadTsKvQuery(key, startTs, endTs, interval, limit, agg, orderBy))
+//                        .collect(Collectors.toList());
+//                try {
+//                    List<TsKvEntry> result = ctx.getTimeseriesService().findAll(ctx.getTenantId(),device.getId(),queries).get();
+//                    testCSV(result, keys, device);
+//                } catch (InterruptedException e) {
+//                    throw new RuntimeException(e);
+//                } catch (ExecutionException e) {
+//                    throw new RuntimeException(e);
+//                }
+//
+//            });
 
 
 
@@ -131,7 +129,7 @@ public class TbFtpNode implements TbNode {
         String method = config.getScheduleMethod();
 
         // Set the desired time for the event
-        LocalTime desiredTime = LocalTime.of(config.getScheduleHour(), config.getScheduleMinute()); // 12:08 PM
+        LocalTime desiredTime = LocalTime.of(config.getScheduleHour(), config.getScheduleMinute());
 
         // Combine the current date and desired time
         ZonedDateTime scheduledTime = now.with(desiredTime);
@@ -154,22 +152,32 @@ public class TbFtpNode implements TbNode {
         ScheduledExecutorService scheduler = Executors.newScheduledThreadPool(1);
 
         // Schedule the task with the appropriate interval based on the selected method
+        ZonedDateTime finalScheduledTime = scheduledTime;
         Runnable scheduledTask = () -> {
             System.out.println("Scheduled task");
-            try {
-                uploadFtp();
-            } catch (FileNotFoundException e) {
-                throw new RuntimeException(e);
-            }
+//            try {
+            Long nowTime = now.toInstant().toEpochMilli();
+
+            Long endTs = new Date().getTime();
+            Long startTs = nowTime+ (endTs - finalScheduledTime.toInstant().toEpochMilli());
+            System.out.println("nowTime = " + nowTime);
+            System.out.println("startTs = " + startTs);
+            System.out.println("endTs = " + endTs);
+//                uploadFtp();
+//            } catch (FileNotFoundException e) {
+//                throw new RuntimeException(e);
+//            }
         };
 
-        if (method.equals("DAILY")) {
-            scheduledFuture = scheduler.scheduleAtFixedRate(scheduledTask, initialDelay, 24 * 60 * 60 * 1000, TimeUnit.MILLISECONDS);
-        } else if (method.equals("WEEKLY")) {
-            scheduledFuture = scheduler.scheduleAtFixedRate(scheduledTask, initialDelay, 7 * 24 * 60 * 60 * 1000, TimeUnit.MILLISECONDS);
-        } else if (method.equals("MONTHLY")) {
-            scheduledFuture = scheduler.scheduleAtFixedRate(scheduledTask, initialDelay, 30 * 24 * 60 * 60 * 1000, TimeUnit.MILLISECONDS);
-        }
+        scheduledFuture = scheduler.scheduleAtFixedRate(scheduledTask, initialDelay,  initialDelay, TimeUnit.MILLISECONDS);
+
+//        if (method.equals("DAILY")) {
+//            scheduledFuture = scheduler.scheduleAtFixedRate(scheduledTask, initialDelay, 24 * 60 * 60 * 1000, TimeUnit.MILLISECONDS);
+//        } else if (method.equals("WEEKLY")) {
+//            scheduledFuture = scheduler.scheduleAtFixedRate(scheduledTask, initialDelay, 7 * 24 * 60 * 60 * 1000, TimeUnit.MILLISECONDS);
+//        } else if (method.equals("MONTHLY")) {
+//            scheduledFuture = scheduler.scheduleAtFixedRate(scheduledTask, initialDelay, 30 * 24 * 60 * 60 * 1000, TimeUnit.MILLISECONDS);
+//        }
 
         System.out.println("Scheduled");
     }
