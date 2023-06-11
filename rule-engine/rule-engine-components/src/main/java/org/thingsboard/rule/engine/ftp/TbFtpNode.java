@@ -193,7 +193,7 @@ public class TbFtpNode implements TbNode {
             deviceList.forEach(device -> {
 
                 long interval = 0L;
-                int limit = 200;
+                int limit = 100;
                 Aggregation agg = Aggregation.NONE;
                 String orderBy = "DESC";
                 List<String> keys = ctx.getTimeseriesService().findAllKeysByEntityIds(ctx.getTenantId(), Collections.singletonList(device.getId()));
