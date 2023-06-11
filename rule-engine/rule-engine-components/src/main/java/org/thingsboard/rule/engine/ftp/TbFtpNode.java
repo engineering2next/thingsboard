@@ -15,6 +15,7 @@ import org.thingsboard.server.common.data.kv.Aggregation;
 import org.thingsboard.server.common.data.kv.BaseReadTsKvQuery;
 import org.thingsboard.server.common.data.kv.ReadTsKvQuery;
 import org.thingsboard.server.common.data.kv.TsKvEntry;
+import org.thingsboard.server.common.data.page.PageData;
 import org.thingsboard.server.common.data.page.PageLink;
 import org.thingsboard.server.common.data.plugin.ComponentType;
 import org.thingsboard.server.common.msg.TbMsg;
@@ -44,67 +45,49 @@ import java.util.stream.Collectors;
 )
 public class TbFtpNode implements TbNode {
     private TbFtpNodeConfiguration config;
-     private ScheduledFuture<?> scheduledFuture;
-     private String folderPath = "D:\\logs";
+    private ScheduledFuture<?> scheduledFuture;
+    private String folderPath = "D:\\logs";
+    private List<Device> deviceList;
+    private TbContext ctx;
+
 
     @Override
     public void init(TbContext ctx, TbNodeConfiguration configuration) throws TbNodeException {
         config = TbNodeUtils.convert(configuration, TbFtpNodeConfiguration.class);
+        this.ctx = ctx;
+        deviceList = new ArrayList<>();
         System.out.println("initializing FTP node");
-        scheduleUploadFtp();
+//        scheduleUploadFtp();
     }
 
     @Override
     public void onMsg(TbContext ctx, TbMsg msg) throws ExecutionException, InterruptedException, TbNodeException {
 
-        if(msg.getType().equals("TB_MSG_TEST")){
+        if (msg.getType().equals("TB_MSG_TEST")) {
 
-//            Long startTs = 0L;
-//            Long endTs = 1686321220898L;
-//            Long interval = 0L;
-//            Integer limit = 100;
-//            Aggregation agg = Aggregation.NONE;
-//            String orderBy = "DESC";
-//
-//            ctx.getDeviceService().findDevicesByTenantIdAndCustomerId(ctx.getTenantId(), msg.getCustomerId(), new PageLink(100)).getData().stream().forEach(device -> {
-//                System.out.println("deviceName = " + device.getName());
-//                System.out.println("deviceDevice = " + device.getId());
-//
-//                List<String> keys = ctx.getTimeseriesService().findAllKeysByEntityIds(ctx.getTenantId(), Collections.singletonList(device.getId()));
-//
-//                List<ReadTsKvQuery> queries = keys.stream().map(key -> new BaseReadTsKvQuery(key, startTs, endTs, interval, limit, agg, orderBy))
-//                        .collect(Collectors.toList());
-//                try {
-//                    List<TsKvEntry> result = ctx.getTimeseriesService().findAll(ctx.getTenantId(),device.getId(),queries).get();
-//                    testCSV(result, keys, device);
-//                } catch (InterruptedException e) {
-//                    throw new RuntimeException(e);
-//                } catch (ExecutionException e) {
-//                    throw new RuntimeException(e);
-//                }
-//
-//            });
+            String url = msg.getMetaData().getData().get("url");
+            String username = msg.getMetaData().getData().get("username");
+            String password = msg.getMetaData().getData().get("password");
+            Integer port = Integer.valueOf(msg.getMetaData().getData().get("password"));;
+            if(testFtp(url, username, password, port)){
+                System.out.println("Ftp +++");
 
+                String deviceId = msg.getMetaData().getData().get("deviceId");
 
+                if (deviceId.isEmpty()) {
+                    ctx.getDeviceService().findDevicesByTenantIdAndCustomerId(ctx.getTenantId(), msg.getCustomerId(), new PageLink(100)).getData().stream().forEach(device -> {
+                        System.out.println("deviceName = " + device.getName());
+                        System.out.println("deviceDevice = " + device.getId());
+                        this.deviceList.add(device);
+                    });
 
-
-//            System.out.println("result ="+ result);
-//            System.out.println("testing =" + result.get(0).getValueAsString());
-//            System.out.println("testing2 =" + result.get(0).getDataPoints());
-//            System.out.println("testing3 =" + result.get(0).getKey());
-//            String url = msg.getMetaData().getData().get("url");
-//            String username = msg.getMetaData().getData().get("username");
-//            String password = msg.getMetaData().getData().get("password");
-//            Integer port = 7221;
-//            if(testFtp(url, username, password)){
-//                System.out.println("Ftp +++");
-//            }
-
-
+                }
+            }
         }
+
         TbMsgMetaData metaData = msg.getMetaData();
-        if(!metaData.getData().isEmpty()){
-            if(msg.getType().equals("POST_TELEMETRY_REQUEST")){
+        if (!metaData.getData().isEmpty()) {
+            if (msg.getType().equals("POST_TELEMETRY_REQUEST")) {
 
 //                System.out.println("msg =" + msg.toString());
 //                this.folderPath = "D:\\logs\\file.csv";
@@ -112,6 +95,7 @@ public class TbFtpNode implements TbNode {
             }
         }
     }
+
     @Override
     public void destroy() {
         folderPath = null;
@@ -154,244 +138,268 @@ public class TbFtpNode implements TbNode {
         // Schedule the task with the appropriate interval based on the selected method
         ZonedDateTime finalScheduledTime = scheduledTime;
         Runnable scheduledTask = () -> {
-            System.out.println("Scheduled task");
-//            try {
-            Long nowTime = now.toInstant().toEpochMilli();
 
-            Long endTs = new Date().getTime();
-            Long startTs = nowTime+ (endTs - finalScheduledTime.toInstant().toEpochMilli());
+            System.out.println("Scheduled task");
+
+            long nowTime = now.toInstant().toEpochMilli();
+            long endTs = new Date().getTime();
+            long startTs = nowTime + (endTs - finalScheduledTime.toInstant().toEpochMilli());
+
             System.out.println("nowTime = " + nowTime);
             System.out.println("startTs = " + startTs);
             System.out.println("endTs = " + endTs);
-//                uploadFtp();
-//            } catch (FileNotFoundException e) {
-//                throw new RuntimeException(e);
-//            }
+
+            deviceList.forEach(device -> {
+
+                long interval = 0L;
+                int limit = 100;
+                Aggregation agg = Aggregation.NONE;
+                String orderBy = "DESC";
+                List<String> keys = ctx.getTimeseriesService().findAllKeysByEntityIds(ctx.getTenantId(), Collections.singletonList(device.getId()));
+
+                List<ReadTsKvQuery> queries = keys.stream().map(key ->
+                                new BaseReadTsKvQuery(key, startTs, endTs, interval, limit, agg, orderBy))
+                        .collect(Collectors.toList());
+                try {
+                    List<TsKvEntry> result = ctx.getTimeseriesService()
+                            .findAll(ctx.getTenantId(), device.getId(), queries).get();
+                    convertDataToCSV(result, keys, device);
+                } catch (InterruptedException | ExecutionException e) {
+                    throw new RuntimeException(e);
+                }
+            });
+            try {
+                uploadFtp();
+            } catch (FileNotFoundException e) {
+                throw new RuntimeException(e);
+            }
         };
 
-        scheduledFuture = scheduler.scheduleAtFixedRate(scheduledTask, initialDelay,  initialDelay, TimeUnit.MILLISECONDS);
+        switch (method) {
+            case "DAILY":
+                scheduledFuture = scheduler.scheduleAtFixedRate(scheduledTask, initialDelay, 24 * 60 * 60 * 1000, TimeUnit.MILLISECONDS);
+                break;
+            case "WEEKLY":
+                scheduledFuture = scheduler.scheduleAtFixedRate(scheduledTask, initialDelay, 7 * 24 * 60 * 60 * 1000, TimeUnit.MILLISECONDS);
+                break;
+            case "MONTHLY":
+                scheduledFuture = scheduler.scheduleAtFixedRate(scheduledTask, initialDelay, 30 * 24 * 60 * 60 * 1000, TimeUnit.MILLISECONDS);
+                break;
+        }
 
-//        if (method.equals("DAILY")) {
-//            scheduledFuture = scheduler.scheduleAtFixedRate(scheduledTask, initialDelay, 24 * 60 * 60 * 1000, TimeUnit.MILLISECONDS);
-//        } else if (method.equals("WEEKLY")) {
-//            scheduledFuture = scheduler.scheduleAtFixedRate(scheduledTask, initialDelay, 7 * 24 * 60 * 60 * 1000, TimeUnit.MILLISECONDS);
-//        } else if (method.equals("MONTHLY")) {
-//            scheduledFuture = scheduler.scheduleAtFixedRate(scheduledTask, initialDelay, 30 * 24 * 60 * 60 * 1000, TimeUnit.MILLISECONDS);
-//        }
+            System.out.println("Scheduled");
+        }
 
-        System.out.println("Scheduled");
-    }
-    public void uploadFtp() throws FileNotFoundException {
-        File folder = new File(folderPath);
+        public void uploadFtp () throws FileNotFoundException {
+            File folder = new File(folderPath);
 
-        if (folder.exists() && folder.isDirectory()) {
-            File[] files = folder.listFiles();
+            if (folder.exists() && folder.isDirectory()) {
+                File[] files = folder.listFiles();
 
-            FTPClient ftpClient = new FTPClient();
+                FTPClient ftpClient = new FTPClient();
 
-            try {
-                ftpClient.connect(config.getServerUrl(), config.getPort());
-                ftpClient.login(config.getUsername(), config.getPassword());
-                ftpClient.enterLocalPassiveMode();
-                ftpClient.setFileType(FTP.BINARY_FILE_TYPE);
+                try {
+                    ftpClient.connect(config.getServerUrl(), config.getPort());
+                    ftpClient.login(config.getUsername(), config.getPassword());
+                    ftpClient.enterLocalPassiveMode();
+                    ftpClient.setFileType(FTP.BINARY_FILE_TYPE);
 
-                for (File file : files) {
-                    if (file.isFile()) {
-                        String filename = file.getName();
-                        InputStream inputStream = new FileInputStream(file);
+                    for (File file : files) {
+                        if (file.isFile()) {
+                            String filename = file.getName();
+                            InputStream inputStream = new FileInputStream(file);
 
-                        try {
-                            if (!ftpClient.changeWorkingDirectory(config.getFolder())) {
-                                ftpClient.makeDirectory(config.getFolder());
-                            }
-                            ftpClient.appendFile(filename, inputStream);
-                        } catch (IOException e) {
-                            e.printStackTrace();
-                        } finally {
                             try {
-                                inputStream.close();
-                                file.delete();
+                                if (!ftpClient.changeWorkingDirectory(config.getFolder())) {
+                                    ftpClient.makeDirectory(config.getFolder());
+                                }
+                                ftpClient.appendFile(filename, inputStream);
                             } catch (IOException e) {
                                 e.printStackTrace();
+                            } finally {
+                                try {
+                                    inputStream.close();
+                                    file.delete();
+                                } catch (IOException e) {
+                                    e.printStackTrace();
+                                }
                             }
                         }
                     }
+                } catch (IOException e) {
+                    e.printStackTrace();
+                } finally {
+                    try {
+                        ftpClient.logout();
+                        ftpClient.disconnect();
+                    } catch (IOException e) {
+                        e.printStackTrace();
+                    }
                 }
+            } else {
+                throw new FileNotFoundException("Folder not found");
+            }
+        }
+
+        public boolean testFtp (String url, String username, String password, Integer port){
+            FTPClient ftpClient = new FTPClient();
+            boolean success = false;
+            try {
+                ftpClient.connect(url, port);
+                success = ftpClient.login(username, password);
+                ftpClient.enterLocalPassiveMode();
+                ftpClient.setFileType(FTP.BINARY_FILE_TYPE);
+
             } catch (IOException e) {
                 e.printStackTrace();
             } finally {
                 try {
-                    ftpClient.logout();
-                    ftpClient.disconnect();
+                    if (ftpClient.isConnected()) {
+                        ftpClient.logout();
+                        ftpClient.disconnect();
+                    }
                 } catch (IOException e) {
                     e.printStackTrace();
                 }
             }
-        } else {
-            throw new FileNotFoundException("Folder not found");
-        }
-    }
-
-    public boolean testFtp (String url, String username, String password){
-        FTPClient ftpClient = new FTPClient();
-        boolean success = false;
-        try {
-            ftpClient.connect(url, 21);
-            success = ftpClient.login(username, password);
-            ftpClient.enterLocalPassiveMode();
-            ftpClient.setFileType(FTP.BINARY_FILE_TYPE);
-
-        } catch (IOException e) {
-            e.printStackTrace();
-        } finally {
-            try {
-                if(ftpClient.isConnected()){
-                    ftpClient.logout();
-                    ftpClient.disconnect();
-                }
-            } catch (IOException e) {
-                e.printStackTrace();
-            }
-        }
-        return success;
-    }
-
-    public void convertDataToCSV(TbMsg msg, TbContext ctx, String csvFilePath) {
-
-        List<String> timeseriesKeys = ctx.getTimeseriesService()
-                .findAllKeysByEntityIds(ctx.getTenantId(), Collections.singletonList(msg.getOriginator()));
-
-        Long timestamp = msg.getMetaDataTs();
-        String date = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(timestamp);
-        String deviceId = msg.getOriginator().getId().toString();
-        String deviceName = msg.getMetaData().getData().get("deviceName");
-
-        // Create the folder if it doesn't exist
-        File folder = new File(folderPath);
-        if (!folder.exists()) {
-            boolean folderCreated = folder.mkdirs();
-            if (!folderCreated) {
-                // Handle folder creation failure
-                System.err.println("Failed to create the folder: " + folderPath);
-                return;
-            }
+            return success;
         }
 
-        try {
-            File csvFile = new File(csvFilePath+File.separator+deviceId+".csv");
-            boolean fileExists = csvFile.exists();
+//        public void testconvertDataToCSV (TbMsg msg, TbContext ctx, String csvFilePath) {
+//
+//            List<String> timeseriesKeys = ctx.getTimeseriesService()
+//                    .findAllKeysByEntityIds(ctx.getTenantId(), Collections.singletonList(msg.getOriginator()));
+//
+//            Long timestamp = msg.getMetaDataTs();
+//            String date = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(timestamp);
+//            String deviceId = msg.getOriginator().getId().toString();
+//            String deviceName = msg.getMetaData().getData().get("deviceName");
+//
+//            // Create the folder if it doesn't exist
+//            File folder = new File(folderPath);
+//            if (!folder.exists()) {
+//                boolean folderCreated = folder.mkdirs();
+//                if (!folderCreated) {
+//                    // Handle folder creation failure
+//                    System.err.println("Failed to create the folder: " + folderPath);
+//                    return;
+//                }
+//            }
+//
+//            try {
+//                File csvFile = new File(csvFilePath + File.separator + deviceId + ".csv");
+//                boolean fileExists = csvFile.exists();
+//
+//                ObjectMapper objectMapper = new ObjectMapper();
+//                JsonNode jsonNode = objectMapper.readTree(msg.getData());
+//
+//                FileWriter writer = new FileWriter(csvFile, true);
+//
+//                // Write headers to CSV file
+//                if (!fileExists) {
+//                    writer.append("timestamp,date,deviceId,deviceName");
+//
+//                    for (String timeseriesKey : timeseriesKeys) {
+//                        // Check if the timeseriesKey exists as a key in the JSON data
+//                        writer.append(",").append(timeseriesKey);
+//                    }
+//                    writer.append("\n");
+//                }
+//
+//                writer.append(timestamp.toString()).append(",").append(date).append(",")
+//                        .append(deviceId)
+//                        .append(",").append(deviceName);
+//
+//                for (String timeseriesKey : timeseriesKeys) {
+//                    // Check if the timeseriesKey exists as a key in the JSON data
+//                    if (jsonNode.has(timeseriesKey)) {
+//                        writer.append(",").append(jsonNode.get(timeseriesKey).toString());
+//                    } else {
+//                        writer.append(",");
+//                    }
+//                }
+//                writer.append("\n");
+//
+//                writer.flush();
+//                writer.close();
+//
+//            } catch (IOException e) {
+//                e.printStackTrace();
+//            }
+//        }
 
-            ObjectMapper objectMapper = new ObjectMapper();
-            JsonNode jsonNode = objectMapper.readTree(msg.getData());
+        public void convertDataToCSV (List < TsKvEntry > result, List < String > timeseriesKeys, Device device){
 
-            FileWriter writer = new FileWriter(csvFile, true);
-
-            // Write headers to CSV file
-            if (!fileExists) {
-                writer.append("timestamp,date,deviceId,deviceName");
-
-                for (String timeseriesKey : timeseriesKeys) {
-                    // Check if the timeseriesKey exists as a key in the JSON data
-                    writer.append(",").append(timeseriesKey);
-                }
-                writer.append("\n");
-            }
-
-            writer.append(timestamp.toString()).append(",").append(date).append(",")
-                    .append(deviceId)
-                    .append(",").append(deviceName);
-
-            for (String timeseriesKey : timeseriesKeys) {
-                // Check if the timeseriesKey exists as a key in the JSON data
-                if (jsonNode.has(timeseriesKey)) {
-                    writer.append(",").append(jsonNode.get(timeseriesKey).toString());
-                } else {
-                    writer.append(",");
-                }
-            }
-            writer.append("\n");
-
-            writer.flush();
-            writer.close();
-
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-    }
-
-    public void testCSV(List<TsKvEntry> result, List<String> timeseriesKeys, Device device) {
-
-        // Create the folder if it doesn't exist
-        File folder = new File(folderPath);
-        if (!folder.exists()) {
-            boolean folderCreated = folder.mkdirs();
-            if (!folderCreated) {
-                System.err.println("Failed to create the folder: " + folderPath);
-                return;
-            }
-        }
-
-        try {
-            File csvFile = new File(folderPath+File.separator+device.getName()+".csv");
-            System.out.println("csvFile: " + csvFile);
-            boolean fileExists = csvFile.exists();
-
-            FileWriter writer = new FileWriter(csvFile, true);
-
-            // Write headers to CSV file if it's a new file
-            if (!fileExists) {
-                writer.append("timestamp,date,deviceId,deviceName");
-                for (String timeseriesKey : timeseriesKeys) {
-                    writer.append(",").append(timeseriesKey);
-                }
-                writer.append("\n");
-            }
-
-            Map<Long, Map<String, String>> dataMap = new HashMap<>();
-
-            for (TsKvEntry entry : result) {
-                Long timestamp = entry.getTs();
-                String date = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(timestamp);
-
-                // Check if the timestamp already exists in the data map
-                Map<String, String> dataRow = dataMap.get(timestamp);
-                if (dataRow == null) {
-                    dataRow = new HashMap<>();
-                    dataRow.put("timestamp", timestamp.toString());
-                    dataRow.put("date", date);
-                    dataRow.put("deviceId", device.getId().toString());
-                    dataRow.put("deviceName", device.getName());
-                    dataMap.put(timestamp, dataRow);
+                // Create the folder if it doesn't exist
+                File folder = new File(folderPath);
+                if (!folder.exists()) {
+                    boolean folderCreated = folder.mkdirs();
+                    if (!folderCreated) {
+                        System.err.println("Failed to create the folder: " + folderPath);
+                        return;
+                    }
                 }
 
-                // Check if the timeseriesKey exists as a key in the JSON data
-                if (timeseriesKeys.contains(entry.getKey())) {
-                    dataRow.put(entry.getKey(), entry.getValueAsString());
+                try {
+                    File csvFile = new File(folderPath + File.separator + device.getName() + ".csv");
+                    System.out.println("csvFile: " + csvFile);
+                    boolean fileExists = csvFile.exists();
+
+                    FileWriter writer = new FileWriter(csvFile, true);
+
+                    // Write headers to CSV file if it's a new file
+                    if (!fileExists) {
+                        writer.append("timestamp,date,deviceId,deviceName");
+                        for (String timeseriesKey : timeseriesKeys) {
+                            writer.append(",").append(timeseriesKey);
+                        }
+                        writer.append("\n");
+                    }
+
+                    Map<Long, Map<String, String>> dataMap = new HashMap<>();
+
+                    for (TsKvEntry entry : result) {
+                        Long timestamp = entry.getTs();
+                        String date = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(timestamp);
+
+                        // Check if the timestamp already exists in the data map
+                        Map<String, String> dataRow = dataMap.get(timestamp);
+                        if (dataRow == null) {
+                            dataRow = new HashMap<>();
+                            dataRow.put("timestamp", timestamp.toString());
+                            dataRow.put("date", date);
+                            dataRow.put("deviceId", device.getId().toString());
+                            dataRow.put("deviceName", device.getName());
+                            dataMap.put(timestamp, dataRow);
+                        }
+
+                        // Check if the timeseriesKey exists as a key in the JSON data
+                        if (timeseriesKeys.contains(entry.getKey())) {
+                            dataRow.put(entry.getKey(), entry.getValueAsString());
+                        }
+                    }
+
+                    // Write the data rows to the CSV file
+                    for (Map<String, String> dataRow : dataMap.values()) {
+                        writer.append(dataRow.get("timestamp")).append(",")
+                                .append(dataRow.get("date")).append(",")
+                                .append(dataRow.get("deviceId")).append(",")
+                                .append(dataRow.get("deviceName"));
+
+                        for (String timeseriesKey : timeseriesKeys) {
+                            writer.append(",").append(dataRow.getOrDefault(timeseriesKey, ""));
+                        }
+
+                        writer.append("\n");
+                    }
+
+                    writer.flush();
+                    writer.close();
+
+                    System.out.println("CSV file created successfully.");
+
+                } catch (IOException e) {
+                    e.printStackTrace();
                 }
             }
-
-            // Write the data rows to the CSV file
-            for (Map<String, String> dataRow : dataMap.values()) {
-                writer.append(dataRow.get("timestamp")).append(",")
-                        .append(dataRow.get("date")).append(",")
-                        .append(dataRow.get("deviceId")).append(",")
-                        .append(dataRow.get("deviceName"));
-
-                for (String timeseriesKey : timeseriesKeys) {
-                    writer.append(",").append(dataRow.getOrDefault(timeseriesKey, ""));
-                }
-
-                writer.append("\n");
-            }
-
-            writer.flush();
-            writer.close();
-
-            System.out.println("CSV file created successfully.");
-
-        } catch (IOException e) {
-            e.printStackTrace();
-        }
-    }
-
 }
