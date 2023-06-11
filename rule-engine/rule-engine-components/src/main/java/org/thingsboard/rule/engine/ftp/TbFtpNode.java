@@ -7,7 +7,14 @@ import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.net.ftp.FTP;
 import org.apache.commons.net.ftp.FTPClient;
 import org.thingsboard.rule.engine.api.*;
-import org.thingsboard.rule.engine.api.util.TbNodeUtils;
+import org.thingsboard.server.common.data.Device;
+import org.thingsboard.server.common.data.id.DeviceId;
+import org.thingsboard.server.common.data.id.EntityId;
+import org.thingsboard.server.common.data.kv.Aggregation;
+import org.thingsboard.server.common.data.kv.BaseReadTsKvQuery;
+import org.thingsboard.server.common.data.kv.ReadTsKvQuery;
+import org.thingsboard.server.common.data.kv.TsKvEntry;
+import org.thingsboard.server.common.data.page.PageLink;
 import org.thingsboard.server.common.data.plugin.ComponentType;
 import org.thingsboard.server.common.msg.TbMsg;
 import org.thingsboard.server.common.msg.TbMsgMetaData;
@@ -18,9 +25,9 @@ import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.time.temporal.ChronoUnit;
-import java.util.Collections;
-import java.util.List;
+import java.util.*;
 import java.util.concurrent.*;
+import java.util.stream.Collectors;
 
 @Slf4j
 @RuleNode(
@@ -36,39 +43,80 @@ import java.util.concurrent.*;
 public class TbFtpNode implements TbNode {
     private TbFtpNodeConfiguration config;
      private ScheduledFuture<?> scheduledFuture;
-     private String file = "";
+     private String folderPath = "D:\\logs";
 
     @Override
     public void init(TbContext ctx, TbNodeConfiguration configuration) throws TbNodeException {
-        config = TbNodeUtils.convert(configuration, TbFtpNodeConfiguration.class);
+//        config = TbNodeUtils.convert(configuration, TbFtpNodeConfiguration.class);
+        System.out.println("initializing FTP node");
 
-        if(testFtp()){
-            scheduleUploadFtp();
-        }
     }
 
     @Override
     public void onMsg(TbContext ctx, TbMsg msg) throws ExecutionException, InterruptedException, TbNodeException {
-        String deviceName = msg.getMetaData().getData().get("deviceName");
-        String tenantId = ctx.getTenantId().toString();
+
+        String deviceId = "56094780-0444-11ee-b756-1f26adf3a3bb";
+        EntityId entityId = new DeviceId(UUID.fromString(deviceId));
+        System.out.println("entityId = " + entityId);
+
         if(msg.getType().equals("TB_MSG_TEST")){
-            System.out.println("test message received");
-            System.out.println("msg = " + msg.toString());
+
+            Long startTs = 0L;
+            Long endTs = 1686321220898L;
+            Long interval = 0L;
+            Integer limit = 100;
+            Aggregation agg = Aggregation.NONE;
+            String orderBy = "DESC";
+            
+            ctx.getDeviceService().findDevicesByTenantIdAndCustomerId(ctx.getTenantId(), msg.getCustomerId(), new PageLink(100)).getData().stream().forEach(device -> {
+                System.out.println("deviceName = " + device.getName());
+                System.out.println("deviceDevice = " + device.getId());
+
+                List<String> keys = ctx.getTimeseriesService().findAllKeysByEntityIds(ctx.getTenantId(), Collections.singletonList(device.getId()));
+
+                List<ReadTsKvQuery> queries = keys.stream().map(key -> new BaseReadTsKvQuery(key, startTs, endTs, interval, limit, agg, orderBy))
+                        .collect(Collectors.toList());
+                try {
+                    List<TsKvEntry> result = ctx.getTimeseriesService().findAll(ctx.getTenantId(),entityId,queries).get();
+                    testCSV(result, keys, device);
+                } catch (InterruptedException e) {
+                    throw new RuntimeException(e);
+                } catch (ExecutionException e) {
+                    throw new RuntimeException(e);
+                }
+
+            });
+
+
+
+
+//            System.out.println("result ="+ result);
+//            System.out.println("testing =" + result.get(0).getValueAsString());
+//            System.out.println("testing2 =" + result.get(0).getDataPoints());
+//            System.out.println("testing3 =" + result.get(0).getKey());
+//            String url = msg.getMetaData().getData().get("url");
+//            String username = msg.getMetaData().getData().get("username");
+//            String password = msg.getMetaData().getData().get("password");
+//            Integer port = 7221;
+//            if(testFtp(url, username, password)){
+//                System.out.println("Ftp +++");
+//            }
+
+
         }
         TbMsgMetaData metaData = msg.getMetaData();
         if(!metaData.getData().isEmpty()){
             if(msg.getType().equals("POST_TELEMETRY_REQUEST")){
 
-                System.out.println("msg =" + msg.toString());
-                this.file = "logs" + File.separator + tenantId + File.separator + deviceName + ".csv";
-                convertDataToCSV(msg, ctx, file);
+//                System.out.println("msg =" + msg.toString());
+//                this.folderPath = "D:\\logs\\file.csv";
+//                convertDataToCSV(msg, ctx, folderPath);
             }
         }
     }
-
     @Override
     public void destroy() {
-        file = null;
+        folderPath = null;
         config = null;
         scheduledFuture.cancel(true);
         System.out.println("Destroying");
@@ -126,7 +174,6 @@ public class TbFtpNode implements TbNode {
         System.out.println("Scheduled");
     }
     public void uploadFtp() throws FileNotFoundException {
-        String folderPath = file.substring(0, file.lastIndexOf("\\"));
         File folder = new File(folderPath);
 
         if (folder.exists() && folder.isDirectory()) {
@@ -177,12 +224,12 @@ public class TbFtpNode implements TbNode {
         }
     }
 
-    public boolean testFtp (){
+    public boolean testFtp (String url, String username, String password){
         FTPClient ftpClient = new FTPClient();
         boolean success = false;
         try {
-            ftpClient.connect(config.getServerUrl(), config.getPort());
-            success = ftpClient.login(config.getUsername(), config.getPassword());
+            ftpClient.connect(url, 21);
+            success = ftpClient.login(username, password);
             ftpClient.enterLocalPassiveMode();
             ftpClient.setFileType(FTP.BINARY_FILE_TYPE);
 
@@ -201,7 +248,7 @@ public class TbFtpNode implements TbNode {
         return success;
     }
 
-    public static void convertDataToCSV(TbMsg msg, TbContext ctx, String csvFilePath) {
+    public void convertDataToCSV(TbMsg msg, TbContext ctx, String csvFilePath) {
 
         List<String> timeseriesKeys = ctx.getTimeseriesService()
                 .findAllKeysByEntityIds(ctx.getTenantId(), Collections.singletonList(msg.getOriginator()));
@@ -212,7 +259,6 @@ public class TbFtpNode implements TbNode {
         String deviceName = msg.getMetaData().getData().get("deviceName");
 
         // Create the folder if it doesn't exist
-        String folderPath = csvFilePath.substring(0, csvFilePath.lastIndexOf(File.separator));
         File folder = new File(folderPath);
         if (!folder.exists()) {
             boolean folderCreated = folder.mkdirs();
@@ -224,13 +270,13 @@ public class TbFtpNode implements TbNode {
         }
 
         try {
-            File csvFile = new File(csvFilePath);
+            File csvFile = new File(csvFilePath+File.separator+deviceId+".csv");
             boolean fileExists = csvFile.exists();
 
             ObjectMapper objectMapper = new ObjectMapper();
             JsonNode jsonNode = objectMapper.readTree(msg.getData());
 
-            FileWriter writer = new FileWriter(csvFilePath, true);
+            FileWriter writer = new FileWriter(csvFile, true);
 
             // Write headers to CSV file
             if (!fileExists) {
@@ -264,4 +310,80 @@ public class TbFtpNode implements TbNode {
             e.printStackTrace();
         }
     }
+
+    public void testCSV(List<TsKvEntry> result, List<String> timeseriesKeys, Device device) {
+
+        // Create the folder if it doesn't exist
+        File folder = new File(folderPath);
+        if (!folder.exists()) {
+            boolean folderCreated = folder.mkdirs();
+            if (!folderCreated) {
+                System.err.println("Failed to create the folder: " + folderPath);
+                return;
+            }
+        }
+
+        try {
+            File csvFile = new File(folderPath+File.separator+device.getName()+".csv");
+            System.out.println("csvFile: " + csvFile);
+            boolean fileExists = csvFile.exists();
+
+            FileWriter writer = new FileWriter(csvFile, true);
+
+            // Write headers to CSV file if it's a new file
+            if (!fileExists) {
+                writer.append("timestamp,date,deviceId,deviceName");
+                for (String timeseriesKey : timeseriesKeys) {
+                    writer.append(",").append(timeseriesKey);
+                }
+                writer.append("\n");
+            }
+
+            Map<Long, Map<String, String>> dataMap = new HashMap<>();
+
+            for (TsKvEntry entry : result) {
+                Long timestamp = entry.getTs();
+                String date = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(timestamp);
+
+                // Check if the timestamp already exists in the data map
+                Map<String, String> dataRow = dataMap.get(timestamp);
+                if (dataRow == null) {
+                    dataRow = new HashMap<>();
+                    dataRow.put("timestamp", timestamp.toString());
+                    dataRow.put("date", date);
+                    dataRow.put("deviceId", device.getId().toString());
+                    dataRow.put("deviceName", device.getName());
+                    dataMap.put(timestamp, dataRow);
+                }
+
+                // Check if the timeseriesKey exists as a key in the JSON data
+                if (timeseriesKeys.contains(entry.getKey())) {
+                    dataRow.put(entry.getKey(), entry.getValueAsString());
+                }
+            }
+
+            // Write the data rows to the CSV file
+            for (Map<String, String> dataRow : dataMap.values()) {
+                writer.append(dataRow.get("timestamp")).append(",")
+                        .append(dataRow.get("date")).append(",")
+                        .append(dataRow.get("deviceId")).append(",")
+                        .append(dataRow.get("deviceName"));
+
+                for (String timeseriesKey : timeseriesKeys) {
+                    writer.append(",").append(dataRow.getOrDefault(timeseriesKey, ""));
+                }
+
+                writer.append("\n");
+            }
+
+            writer.flush();
+            writer.close();
+
+            System.out.println("CSV file created successfully.");
+
+        } catch (IOException e) {
+            e.printStackTrace();
+        }
+    }
+
 }
