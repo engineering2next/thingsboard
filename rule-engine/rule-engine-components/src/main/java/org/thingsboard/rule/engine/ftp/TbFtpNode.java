@@ -1,8 +1,6 @@
 // test
 package org.thingsboard.rule.engine.ftp;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import lombok.extern.slf4j.Slf4j;
 import org.apache.commons.net.ftp.FTP;
 import org.apache.commons.net.ftp.FTPClient;
@@ -10,12 +8,10 @@ import org.thingsboard.rule.engine.api.*;
 import org.thingsboard.rule.engine.api.util.TbNodeUtils;
 import org.thingsboard.server.common.data.Device;
 import org.thingsboard.server.common.data.id.DeviceId;
-import org.thingsboard.server.common.data.id.EntityId;
 import org.thingsboard.server.common.data.kv.Aggregation;
 import org.thingsboard.server.common.data.kv.BaseReadTsKvQuery;
 import org.thingsboard.server.common.data.kv.ReadTsKvQuery;
 import org.thingsboard.server.common.data.kv.TsKvEntry;
-import org.thingsboard.server.common.data.page.PageData;
 import org.thingsboard.server.common.data.page.PageLink;
 import org.thingsboard.server.common.data.plugin.ComponentType;
 import org.thingsboard.server.common.msg.TbMsg;
@@ -26,7 +22,6 @@ import java.text.SimpleDateFormat;
 import java.time.LocalTime;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
-import java.time.temporal.ChronoField;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
 import java.util.concurrent.*;
@@ -63,26 +58,72 @@ public class TbFtpNode implements TbNode {
     @Override
     public void onMsg(TbContext ctx, TbMsg msg) throws ExecutionException, InterruptedException, TbNodeException {
 
+
         if (msg.getType().equals("TB_MSG_TEST")) {
 
+            System.out.println("onMsg FTP node TB_MSG_TEST");
+            System.out.println("msg = " + msg);
             String url = msg.getMetaData().getData().get("url");
+            System.out.println("url = " + url);
+
             String username = msg.getMetaData().getData().get("username");
+            System.out.println("username = " + username);
+
             String password = msg.getMetaData().getData().get("password");
-            Integer port = Integer.valueOf(msg.getMetaData().getData().get("password"));;
-            if(testFtp(url, username, password, port)){
-                System.out.println("Ftp +++");
+            System.out.println("password = " + password);
 
-                String deviceId = msg.getMetaData().getData().get("deviceId");
+            Integer port = Integer.valueOf(msg.getMetaData().getData().get("port"));
+            System.out.println("port = " + port);
 
-                if (deviceId.isEmpty()) {
-                    ctx.getDeviceService().findDevicesByTenantIdAndCustomerId(ctx.getTenantId(), msg.getCustomerId(), new PageLink(100)).getData().stream().forEach(device -> {
-                        System.out.println("deviceName = " + device.getName());
-                        System.out.println("deviceDevice = " + device.getId());
-                        this.deviceList.add(device);
-                    });
+            String scheduleMethod = msg.getMetaData().getData().get("scheduleMethod");
+            System.out.println("scheduleMethod = " + scheduleMethod);
 
+            Integer scheduleHour = Integer.valueOf(msg.getMetaData().getData().get("scheduleHour"));
+            System.out.println("scheduleHour = " + scheduleHour);
+
+            Integer scheduleMinute = Integer.valueOf(msg.getMetaData().getData().get("scheduleMinute"));
+            System.out.println("scheduleMinute = " + scheduleMinute);
+
+
+
+            if(!(config.getServerUrl().equals(url)
+                    && config.getUsername().equals(username)
+                    && config.getPassword().equals(password)
+                    && config.getPort().equals(port)
+                    && config.getScheduleMethod().equals(scheduleMethod)
+                    && config.getScheduleHour().equals(scheduleHour)
+                    && config.getScheduleMinute().equals(scheduleMinute))){
+                System.out.println("Configuring FTP node");
+
+                config.setServerUrl(url);
+                config.setUsername(username);
+                config.setPassword(password);
+                config.setPort(port);
+                config.setScheduleMethod(scheduleMethod);
+                config.setScheduleHour(scheduleHour);
+                config.setScheduleMinute(scheduleMinute);
+
+                if(testFtpConnection(url, username, password, port)){
+                    System.out.println("Ftp +++");
+
+                    String deviceId = msg.getMetaData().getData().get("deviceId");
+                    System.out.println("deviceId = " + deviceId);
+                    if (deviceId == null || deviceId.isEmpty()) {
+                        System.out.println("deviceId is empty");
+                        this.deviceList.clear();
+                        this.deviceList.addAll(ctx.getDeviceService().findDevicesByTenantIdAndCustomerId(ctx.getTenantId(), msg.getCustomerId(), new PageLink(100))
+                                .getData());
+
+                    }else {
+                        System.out.println("deviceId is not empty");
+                        this.deviceList.clear();
+                        this.deviceList.add(ctx.getDeviceService().findDeviceByIdAsync(ctx.getTenantId(), new DeviceId(UUID.fromString(deviceId))).get());
+                    }
+                    System.out.println("deviceList = " + deviceList);
+                    scheduleUploadFtp();
                 }
             }
+
         }
 
         TbMsgMetaData metaData = msg.getMetaData();
@@ -152,7 +193,7 @@ public class TbFtpNode implements TbNode {
             deviceList.forEach(device -> {
 
                 long interval = 0L;
-                int limit = 100;
+                int limit = 200;
                 Aggregation agg = Aggregation.NONE;
                 String orderBy = "DESC";
                 List<String> keys = ctx.getTimeseriesService().findAllKeysByEntityIds(ctx.getTenantId(), Collections.singletonList(device.getId()));
@@ -241,7 +282,7 @@ public class TbFtpNode implements TbNode {
             }
         }
 
-        public boolean testFtp (String url, String username, String password, Integer port){
+        public boolean testFtpConnection(String url, String username, String password, Integer port){
             FTPClient ftpClient = new FTPClient();
             boolean success = false;
             try {
@@ -264,69 +305,6 @@ public class TbFtpNode implements TbNode {
             }
             return success;
         }
-
-//        public void testconvertDataToCSV (TbMsg msg, TbContext ctx, String csvFilePath) {
-//
-//            List<String> timeseriesKeys = ctx.getTimeseriesService()
-//                    .findAllKeysByEntityIds(ctx.getTenantId(), Collections.singletonList(msg.getOriginator()));
-//
-//            Long timestamp = msg.getMetaDataTs();
-//            String date = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss").format(timestamp);
-//            String deviceId = msg.getOriginator().getId().toString();
-//            String deviceName = msg.getMetaData().getData().get("deviceName");
-//
-//            // Create the folder if it doesn't exist
-//            File folder = new File(folderPath);
-//            if (!folder.exists()) {
-//                boolean folderCreated = folder.mkdirs();
-//                if (!folderCreated) {
-//                    // Handle folder creation failure
-//                    System.err.println("Failed to create the folder: " + folderPath);
-//                    return;
-//                }
-//            }
-//
-//            try {
-//                File csvFile = new File(csvFilePath + File.separator + deviceId + ".csv");
-//                boolean fileExists = csvFile.exists();
-//
-//                ObjectMapper objectMapper = new ObjectMapper();
-//                JsonNode jsonNode = objectMapper.readTree(msg.getData());
-//
-//                FileWriter writer = new FileWriter(csvFile, true);
-//
-//                // Write headers to CSV file
-//                if (!fileExists) {
-//                    writer.append("timestamp,date,deviceId,deviceName");
-//
-//                    for (String timeseriesKey : timeseriesKeys) {
-//                        // Check if the timeseriesKey exists as a key in the JSON data
-//                        writer.append(",").append(timeseriesKey);
-//                    }
-//                    writer.append("\n");
-//                }
-//
-//                writer.append(timestamp.toString()).append(",").append(date).append(",")
-//                        .append(deviceId)
-//                        .append(",").append(deviceName);
-//
-//                for (String timeseriesKey : timeseriesKeys) {
-//                    // Check if the timeseriesKey exists as a key in the JSON data
-//                    if (jsonNode.has(timeseriesKey)) {
-//                        writer.append(",").append(jsonNode.get(timeseriesKey).toString());
-//                    } else {
-//                        writer.append(",");
-//                    }
-//                }
-//                writer.append("\n");
-//
-//                writer.flush();
-//                writer.close();
-//
-//            } catch (IOException e) {
-//                e.printStackTrace();
-//            }
-//        }
 
         public void convertDataToCSV (List < TsKvEntry > result, List < String > timeseriesKeys, Device device){
 
